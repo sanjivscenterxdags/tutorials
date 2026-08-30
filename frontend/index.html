@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GraphQL Basics — Apollo Client</title>
+
+<!--
+  Deliverable 4 — frontend/index.html
+
+  A deliberately minimal Apollo Client frontend. No npm, no build step, no
+  framework: one HTML file, one <script type="module">, Apollo Client loaded
+  straight from a CDN.
+
+  The flow this page demonstrates:
+
+      JavaScript / Apollo Client
+                |
+                |  gql` query {...} `
+                v
+        GraphQL HTTP request  (POST /graphql)
+                |
+                v
+             Server (Strawberry)
+                |
+                v
+              SQLite
+                |
+                v
+          JSON response
+                |
+                v
+          Apollo Client
+                |
+                v
+              HTML
+
+  Every GraphQL document used below is written out as a plain string constant,
+  shown on the page, AND handed to gql(). Apollo is never allowed to hide the
+  query text from you: what you read in the grey box is exactly what is sent.
+-->
+
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; line-height: 1.5; }
+  h1 { margin-bottom: 0.2rem; }
+  h2 { margin-top: 2.5rem; border-bottom: 2px solid #ccc; padding-bottom: 0.3rem; }
+  .sub { color: #555; margin-top: 0; }
+  pre { background: #f4f4f4; border-left: 3px solid #888; padding: 0.7rem; overflow-x: auto; font-size: 0.85rem; }
+  pre.out { background: #f0f7f0; border-left-color: #4a4; white-space: pre-wrap; }
+  pre.err { background: #fdf0f0; border-left-color: #c44; }
+  input { padding: 0.3rem; margin: 0.15rem 0.3rem 0.15rem 0; }
+  input[type=number] { width: 7rem; }
+  button { padding: 0.45rem 0.9rem; cursor: pointer; margin-top: 0.4rem; }
+  label { display: inline-block; font-size: 0.85rem; color: #444; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; }
+  th { background: #eee; }
+  .note { background: #fffceb; border-left: 3px solid #dc0; padding: 0.7rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>GraphQL Basics — Apollo Client</h1>
+<p class="sub">
+  Every button below sends <code>POST http://localhost:8008/graphql</code>.
+  Only the GraphQL document changes.
+</p>
+
+<div class="note">
+  Start the server first: <code>python graphql_server.py</code>.
+  Open your browser devtools <b>Network</b> tab and watch the
+  <code>graphql</code> requests as you click — the URL and the HTTP method are
+  identical every time.
+</div>
+
+<!-- ===================== 1. LIST EMPLOYEES ===================== -->
+<h2>1. List employees — <code>employees</code> query</h2>
+<pre id="src-list"></pre>
+<button id="btn-list">Run query</button>
+<div id="out-list"></div>
+
+<!-- ===================== 2. ONE EMPLOYEE ===================== -->
+<h2>2. One employee — <code>employee(id)</code> query (with a variable)</h2>
+<pre id="src-one"></pre>
+<label>employeeId <input type="number" id="one-id" value="5"></label>
+<button id="btn-one">Run query</button>
+<div id="out-one"></div>
+
+<!-- ===================== 3. ADD ===================== -->
+<h2>3. Add employee — <code>addEmployee</code> mutation</h2>
+<pre id="src-add"></pre>
+<div>
+  <input id="add-first"    placeholder="firstName" value="Alice">
+  <input id="add-last"     placeholder="lastName"  value="Cooper">
+  <input id="add-age"      placeholder="age"       value="34"       type="number">
+  <input id="add-gender"   placeholder="gender"    value="Female">
+  <input id="add-position" placeholder="position"  value="Engineer">
+  <input id="add-salary"   placeholder="salary"    value="102000"   type="number" step="0.01">
+  <input id="add-city"     placeholder="city"      value="Houston">
+</div>
+<button id="btn-add">Run mutation</button>
+<div id="out-add"></div>
+
+<!-- ===================== 4. UPDATE ===================== -->
+<h2>4. Update employee — <code>updateEmployee</code> mutation</h2>
+<p class="sub">
+  A full-record update: every field must be supplied. Partial updates are a
+  more advanced topic and are deliberately left out.
+</p>
+<pre id="src-upd"></pre>
+<div>
+  <input id="upd-id"       placeholder="employeeId" value="3"        type="number">
+  <input id="upd-first"    placeholder="firstName"  value="Robert">
+  <input id="upd-last"     placeholder="lastName"   value="Brown">
+  <input id="upd-age"      placeholder="age"        value="30"       type="number">
+  <input id="upd-gender"   placeholder="gender"     value="Male">
+  <input id="upd-position" placeholder="position"   value="Senior Analyst">
+  <input id="upd-salary"   placeholder="salary"     value="80000"    type="number" step="0.01">
+  <input id="upd-city"     placeholder="city"       value="Boston">
+</div>
+<button id="btn-upd">Run mutation</button>
+<div id="out-upd"></div>
+
+<!-- ===================== 5. DELETE ===================== -->
+<h2>5. Delete employee — <code>deleteEmployee</code> mutation</h2>
+<p class="sub">
+  Returns a plain <code>Boolean</code>, so the operation has no selection set:
+  <code>true</code> if a row was deleted, <code>false</code> if that id did not exist.
+</p>
+<pre id="src-del"></pre>
+<label>employeeId <input type="number" id="del-id" value="11"></label>
+<button id="btn-del">Run mutation</button>
+<div id="out-del"></div>
+
+
+<script type="module">
+// ---------------------------------------------------------------------------
+// Apollo Client, loaded as an ES module straight from a CDN. No build step.
+// ---------------------------------------------------------------------------
+import {
+  ApolloClient,
+  InMemoryCache,
+  HttpLink,
+  gql,
+} from "https://cdn.jsdelivr.net/npm/@apollo/client@3.13.8/+esm";
+
+const GRAPHQL_ENDPOINT = "http://localhost:8008/graphql";
+
+const client = new ApolloClient({
+  link: new HttpLink({ uri: GRAPHQL_ENDPOINT }),
+  cache: new InMemoryCache(),
+  // Always go to the network so that every click is one visible HTTP request
+  // and you never wonder whether you are looking at a cached answer. Caching
+  // is a real Apollo feature, but it is not this tutorial's subject.
+  defaultOptions: {
+    query: { fetchPolicy: "no-cache" },
+    watchQuery: { fetchPolicy: "no-cache" },
+  },
+});
+
+// ---------------------------------------------------------------------------
+// The GraphQL documents.
+//
+// Each one is a plain string first, so it can be printed on the page verbatim,
+// then wrapped with gql(). The text you read is the text Apollo sends.
+// ---------------------------------------------------------------------------
+
+const LIST_EMPLOYEES_TEXT = `
+query ListEmployees {
+  employees {
+    employeeId
+    firstName
+    lastName
+    position
+    city
+  }
+}`.trim();
+
+const GET_EMPLOYEE_TEXT = `
+query GetEmployee($id: Int!) {
+  employee(id: $id) {
+    employeeId
+    firstName
+    lastName
+    age
+    gender
+    position
+    salary
+    city
+  }
+}`.trim();
+
+const ADD_EMPLOYEE_TEXT = `
+mutation AddEmployee(
+  $firstName: String!
+  $lastName: String!
+  $age: Int!
+  $gender: String!
+  $position: String!
+  $salary: Float!
+  $city: String!
+) {
+  addEmployee(
+    firstName: $firstName
+    lastName: $lastName
+    age: $age
+    gender: $gender
+    position: $position
+    salary: $salary
+    city: $city
+  ) {
+    employeeId
+    firstName
+    lastName
+    position
+    city
+  }
+}`.trim();
+
+const UPDATE_EMPLOYEE_TEXT = `
+mutation UpdateEmployee(
+  $employeeId: Int!
+  $firstName: String!
+  $lastName: String!
+  $age: Int!
+  $gender: String!
+  $position: String!
+  $salary: Float!
+  $city: String!
+) {
+  updateEmployee(
+    employeeId: $employeeId
+    firstName: $firstName
+    lastName: $lastName
+    age: $age
+    gender: $gender
+    position: $position
+    salary: $salary
+    city: $city
+  ) {
+    employeeId
+    firstName
+    lastName
+    position
+    salary
+    city
+  }
+}`.trim();
+
+const DELETE_EMPLOYEE_TEXT = `
+mutation DeleteEmployee($employeeId: Int!) {
+  deleteEmployee(employeeId: $employeeId)
+}`.trim();
+
+// gql() parses the string into the document Apollo actually transmits.
+const LIST_EMPLOYEES  = gql(LIST_EMPLOYEES_TEXT);
+const GET_EMPLOYEE    = gql(GET_EMPLOYEE_TEXT);
+const ADD_EMPLOYEE    = gql(ADD_EMPLOYEE_TEXT);
+const UPDATE_EMPLOYEE = gql(UPDATE_EMPLOYEE_TEXT);
+const DELETE_EMPLOYEE = gql(DELETE_EMPLOYEE_TEXT);
+
+// Show each document on the page, so the gql statement behind every button is
+// never more than a glance away.
+document.getElementById("src-list").textContent = LIST_EMPLOYEES_TEXT;
+document.getElementById("src-one").textContent  = GET_EMPLOYEE_TEXT;
+document.getElementById("src-add").textContent  = ADD_EMPLOYEE_TEXT;
+document.getElementById("src-upd").textContent  = UPDATE_EMPLOYEE_TEXT;
+document.getElementById("src-del").textContent  = DELETE_EMPLOYEE_TEXT;
+
+// ---------------------------------------------------------------------------
+// Tiny rendering helpers
+// ---------------------------------------------------------------------------
+
+const val = (id) => document.getElementById(id).value;
+const num = (id) => Number(document.getElementById(id).value);
+
+function showJson(targetId, label, data) {
+  document.getElementById(targetId).innerHTML =
+    `<p class="sub">${label}</p><pre class="out"></pre>`;
+  document.querySelector(`#${targetId} pre`).textContent =
+    JSON.stringify(data, null, 2);
+}
+
+function showError(targetId, error) {
+  document.getElementById(targetId).innerHTML = `<pre class="err"></pre>`;
+  document.querySelector(`#${targetId} pre`).textContent = String(error.message || error);
+}
+
+function showTable(targetId, employees) {
+  const rows = employees.map((e) => `
+    <tr>
+      <td>${e.employeeId}</td><td>${e.firstName}</td><td>${e.lastName}</td>
+      <td>${e.position}</td><td>${e.city}</td>
+    </tr>`).join("");
+  document.getElementById(targetId).innerHTML = `
+    <p class="sub">${employees.length} employees — rendered from the JSON response</p>
+    <table>
+      <tr><th>employeeId</th><th>firstName</th><th>lastName</th><th>position</th><th>city</th></tr>
+      ${rows}
+    </table>`;
+}
+
+// ---------------------------------------------------------------------------
+// 1. List employees   ->  Query  ->  get_employees()  ->  SELECT
+// ---------------------------------------------------------------------------
+document.getElementById("btn-list").onclick = async () => {
+  try {
+    const result = await client.query({ query: LIST_EMPLOYEES });
+    showTable("out-list", result.data.employees);
+  } catch (error) {
+    showError("out-list", error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 2. One employee   ->  Query  ->  get_employee(id)  ->  SELECT ... WHERE
+// ---------------------------------------------------------------------------
+document.getElementById("btn-one").onclick = async () => {
+  try {
+    const result = await client.query({
+      query: GET_EMPLOYEE,
+      variables: { id: num("one-id") },
+    });
+    const label = result.data.employee === null
+      ? "No employee with that id — the server returned null (not an error)."
+      : "JSON response:";
+    showJson("out-one", label, result.data);
+  } catch (error) {
+    showError("out-one", error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 3. Add employee   ->  Mutation  ->  add_employee()  ->  INSERT
+// ---------------------------------------------------------------------------
+document.getElementById("btn-add").onclick = async () => {
+  try {
+    const result = await client.mutate({
+      mutation: ADD_EMPLOYEE,
+      variables: {
+        firstName: val("add-first"),
+        lastName:  val("add-last"),
+        age:       num("add-age"),
+        gender:    val("add-gender"),
+        position:  val("add-position"),
+        salary:    num("add-salary"),
+        city:      val("add-city"),
+      },
+    });
+    showJson("out-add", "Inserted. employeeId was generated by SQLite:", result.data);
+  } catch (error) {
+    showError("out-add", error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 4. Update employee   ->  Mutation  ->  update_employee()  ->  UPDATE
+// ---------------------------------------------------------------------------
+document.getElementById("btn-upd").onclick = async () => {
+  try {
+    const result = await client.mutate({
+      mutation: UPDATE_EMPLOYEE,
+      variables: {
+        employeeId: num("upd-id"),
+        firstName:  val("upd-first"),
+        lastName:   val("upd-last"),
+        age:        num("upd-age"),
+        gender:     val("upd-gender"),
+        position:   val("upd-position"),
+        salary:     num("upd-salary"),
+        city:       val("upd-city"),
+      },
+    });
+    const label = result.data.updateEmployee === null
+      ? "No employee with that id — the server returned null."
+      : "Updated:";
+    showJson("out-upd", label, result.data);
+  } catch (error) {
+    showError("out-upd", error);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// 5. Delete employee   ->  Mutation  ->  delete_employee()  ->  DELETE
+// ---------------------------------------------------------------------------
+document.getElementById("btn-del").onclick = async () => {
+  try {
+    const result = await client.mutate({
+      mutation: DELETE_EMPLOYEE,
+      variables: { employeeId: num("del-id") },
+    });
+    const label = result.data.deleteEmployee
+      ? "Deleted."
+      : "Nothing deleted — no employee had that id.";
+    showJson("out-del", label, result.data);
+  } catch (error) {
+    showError("out-del", error);
+  }
+};
+</script>
+
+</body>
+</html>

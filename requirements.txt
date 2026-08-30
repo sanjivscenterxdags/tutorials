@@ -1,0 +1,14 @@
+# Deliverable 3 — the only two dependencies this tutorial needs.
+#
+# strawberry-graphql[asgi]  the GraphQL schema, the resolvers, the GraphiQL IDE.
+#                           The [asgi] extra pulls in Starlette, which provides
+#                           the ASGI app, the /graphql route, and CORS.
+# uvicorn                   the ASGI server that actually listens on the port.
+#
+# SQLite needs nothing: `sqlite3` is part of the Python standard library.
+# Apollo Client needs nothing either: frontend/index.html loads it from a CDN.
+#
+#   pip install -r requirements.txt
+
+strawberry-graphql[asgi]>=0.324.0
+uvicorn>=0.34.0

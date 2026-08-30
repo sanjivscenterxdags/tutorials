@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Tutorial database — regenerate any time with: python create_database.py
+employees.db
